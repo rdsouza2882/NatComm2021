@@ -1,0 +1,125 @@
+---
+title: "Mouse Hierarchy"
+author: "Rinaldo D'Souza"
+date: "10/7/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# install beta regression package; click through the dialogue boxes that appear
+
+```{r}
+if(!require(betareg)) install.packages("betareg") else
+  suppressPackageStartupMessages(library(betareg))
+```
+
+# enter data 
+
+```{r}
+library(readxl)
+connectivity_matrix <- read_excel("C:\\Users\\rinal\\OneDrive\\Desktop\\Rinaldo (Desktop)\\mouse hierarchy analysis\\R files\\NewExcel\\Average_L24toL14_70saturation_blur1um.xlsx")
+m <- connectivity_matrix
+m <- m[, -1]
+m <- as.matrix(m)
+rownames(m) <- colnames(m)
+#round(m, 2)
+m
+```
+
+# p.11: set up incidence matrix for testing models (for beta regression, etc.)
+
+```{r}
+m.df <- stack(as.data.frame(t(m)))
+names(m.df) <- c("ODr", "Source")
+m.df$Target <- factor(colnames(m), levels = colnames(m))
+m.df$Source <- factor(m.df$Source, levels = colnames(m))
+Imat <- matrix(0, nrow = 100, ncol = 10)
+colnames(Imat) <- colnames(m)
+rownames(Imat) <- with(m.df, 
+                       paste0(as.character(Source), "->", as.character(Target)))
+for(ix in 1:100){
+  Imat[ix, m.df[ix, "Source"]] <- -1
+  Imat[ix, m.df[ix, "Target"]] <- 1
+  }
+Imat <- Imat[complete.cases(m.df), ]    
+m.df <- m.df[complete.cases(m.df), ]
+Dorsal <- c("LM", "P", "LI", "POR")
+Ventral <- c("AL", "RL", "A", "PM", "AM")
+m.df$Stream <- with(m.df, 
+                ifelse(Source %in% Dorsal, "D",
+                  ifelse(Source %in% Ventral, "V", "V1")))
+```
+
+```{r}
+m <- qlogis(m)
+m <- t(m)
+m
+```
+
+```{r}
+library(ggplot2)
+```
+
+
+```{r}
+m2 <- mean(m)
+std<-sqrt(var(m))
+hist(m, breaks = 10, col = "light green", xlim = c(-2,1), lwd = 3, freq = FALSE)
+#curve(dlnorm(x, meanlog = 3.45, sdlog = 0.728), from = -2, to = 1)
+```
+
+
+# p.3: look for negative correlation between FF and FB pathways
+```{r}
+upm <- m[upper.tri(m)]
+lom <- t(m)[upper.tri(m)]
+#cor.test(sign(upm), sign(lom), na.action = na.omit)
+```
+
+```{r}
+hist(m, breaks = 20)
+```
+
+
+# p.4: check for symmetry of FF and FB strengths
+
+```{r}
+fffb.lm <- lm(upm ~ lom)
+summary(fffb.lm)
+```
+
+# p.5: plot FF vs FB values
+
+```{r, fig.align = "center"}
+par(pty = "s")
+plot(upm ~ lom, xlab  ="DR lower matrix",
+     ylab = "DR upper matrix", xlim = c(-0.75, 1), ylim = c(-1.5, 0.5), pch = 19, col = 'pink', bg = "#FF99CC", lwd = 11, cex = 0.5)
+axis(side = 1, lwd = 3)
+axis(side = 2, lwd = 3)
+box(lwd = 3)
+xx <- seq(-2, 2, len = 200)
+fffb.pr <- predict(fffb.lm, newdata = data.frame(lom = xx), 
+                   se.fit = TRUE, interval = "prediction")
+lines(xx, fffb.pr$fit[, 2], lty = 3, lwd = 2)
+lines(xx, fffb.pr$fit[, 3], lty = 3, lwd = 2)
+abline(fffb.lm, lwd = 3)
+```
+
+# p.7: triangle plot: check OD ratios for each area against unit slope line
+```{r, fig.width = 7, fig.height = 7, fig.align = "center"}
+
+pairs(t(m), xlim = c(-2, 1.5), ylim = c(-2, 1.5), 
+	lower.panel = function(x, y, ...){
+	  points(x, y, col = "#FF6600", pch = 18, cex = 1.5)
+	 	xy0 <- lm(y ~ offset(x))
+		abline(coef(xy0), 1, lty = 1, lwd = 2, col = 'blue')
+	}, upper.panel = NULL, gap = 0.4)
+```
+
+
+
+
+

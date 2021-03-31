@@ -1,0 +1,271 @@
+---
+title: "Mouse Hierarchy"
+author: "Rinaldo D'Souza"
+date: "10/7/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# install beta regression package; click through the dialogue boxes that appear
+
+```{r}
+if(!require(betareg)) install.packages("betareg") else
+  suppressPackageStartupMessages(library(betareg))
+```
+
+
+# enter data 
+
+```{r}
+library(readxl)
+connectivity_matrix <- read_excel("C:\\Users\\rinal\\OneDrive\\Desktop\\Rinaldo (Desktop)\\mouse hierarchy analysis\\R files\\NewExcel\\Average_L24toL14_70saturation_blur1um.xlsx")
+m <- connectivity_matrix
+m <- m[, -1]
+m <- as.matrix(m)
+rownames(m) <- colnames(m)
+#round(m, 2)
+m
+```
+
+# p.11: set up incidence matrix for testing models (for beta regression, etc.)
+
+```{r}
+m.df <- stack(as.data.frame(t(m)))
+names(m.df) <- c("ODr", "Source")
+m.df$Target <- factor(colnames(m), levels = colnames(m))
+m.df$Source <- factor(m.df$Source, levels = colnames(m))
+Imat <- matrix(0, nrow = 100, ncol = 10)
+colnames(Imat) <- colnames(m)
+rownames(Imat) <- with(m.df, 
+                       paste0(as.character(Source), "->", as.character(Target)))
+for(ix in 1:100){
+  Imat[ix, m.df[ix, "Source"]] <- -1
+  Imat[ix, m.df[ix, "Target"]] <- 1
+  }
+Imat <- Imat[complete.cases(m.df), ]    
+m.df <- m.df[complete.cases(m.df), ]
+Dorsal <- c("LM", "P", "LI", "POR")
+Ventral <- c("AL", "RL", "A", "PM", "AM")
+m.df$Stream <- with(m.df, 
+                ifelse(Source %in% Dorsal, "D",
+                  ifelse(Source %in% Ventral, "V", "V1")))
+```
+
+
+# p.3: print results of binomial test
+```{r}
+binom.test(27, 37)
+```
+
+binom.test(27, 37)
+
+# p.4: check for symmetry of FF and FB strengths
+
+```{r}
+linfffb.lm <- lm(upm ~ lom)
+summary(linfffb.lm)
+```
+
+```{r}
+fffb.lm <- lm(qlogis(upm) ~ qlogis(lom))
+summary(fffb.lm)
+```
+# p.5: plot FF vs FB values
+
+```{r, fig.align = "center"}
+par(pty = "s")
+plot(upm ~ lom, xlab  ="DR lower matrix",
+     ylab = "DR upper matrix")
+xx <- seq(-0.5, 2, len = 100)
+linfffb.pr <- predict(linfffb.lm, newdata = data.frame(lom = xx), 
+                   se.fit = TRUE, interval = "prediction")
+lines(xx, linfffb.pr$fit[, 2], lty = 2)
+lines(xx, linfffb.pr$fit[, 3], lty = 2)
+abline(linfffb.lm)
+```
+
+
+# p.7: triangle plot: check OD ratios for each area against unit slope line
+
+```{r, fig.width = 7, fig.height = 7, fig.align = "center"}
+pairs(t(m), xlim = c(0, 0.8), ylim = c(0, 0.8),
+	lower.panel = function(x, y, ...){
+	  points(x, y)
+		xy0 <- lm(y ~ offset(x))
+		abline(coef(xy0), 1, lty = 2, lwd = 2)
+	}, upper.panel = NULL, gap = 0.2)
+```
+
+```{r, fig.width = 7, fig.height = 7, fig.align = "center"}
+pairs(qlogis(m), xlim = c(-2, 2), ylim = c(-2, 2),
+	lower.panel = function(x, y, ...){
+	  points(x, y)
+		xy0 <- lm(y ~ offset(x))
+		abline(coef(xy0), 1, lty = 2, lwd = 2)
+	}, upper.panel = NULL, gap = 0.2)
+```
+
+```{r}
+m.df <- stack(as.data.frame(t(m)))
+names(m.df) <- c("ODr", "Source")
+m.df$Target <- factor(colnames(m), levels = colnames(m))
+m.df$Source <- factor(m.df$Source, levels = colnames(m))
+#m.df$wts <- as.vector(t(wts))
+Imat <- matrix(0, nrow = 100, ncol = 10)
+colnames(Imat) <- colnames(m)
+rownames(Imat) <- with(m.df,
+paste0(as.character(Source), "->", as.character(Target)))
+for(ix in 1:100){
+Imat[ix, m.df[ix, "Source"]] <- -1
+Imat[ix, m.df[ix, "Target"]] <- 1
+}
+Imat <- Imat[complete.cases(m.df), ]
+m.df <- m.df[complete.cases(m.df), ]
+Dorsal <- c("LM", "P", "LI", "POR")
+Ventral <- c("AL", "RL", "A", "PM", "AM")
+m.df$Stream <- with(m.df,
+ifelse(Source %in% Dorsal, "D",
+ifelse(Source %in% Ventral, "V", "V1")))
+```
+
+
+
+# Beta regression
+
+## p.24: beta regression - print model results 
+
+```{r}
+library(betareg)
+br1 <- betareg(ODr ~ Imat[, -1] + 0, m.df)
+summary(br1)
+```
+
+
+## p.25: beta regression - print 95% confidence intervals
+```{r}
+br.CI <- 1.96 * coef(summary(br1))$mean[, 2]
+( br.ci <- rbind(V1 = 0, 
+      cbind(est = coef(summary(br1))$mean[, 1],
+            lwr = coef(summary(br1))$mean[, 1] - br.CI, 
+            upr = coef(summary(br1))$mean[, 1] + br.CI))
+)
+```
+## p.26: beta regresion - plot areas by hierarchial value with error bars
+
+```{r, fig.width = 6, fig.height = 7}
+areas_plotting_order <- c('POR','LI','P','LM','V1','RL','AL','A','PM','AM')
+rownames(br.ci) <- rownames(m)
+Brhiervals <- c(0, coef(br1)[-10])
+class(Brhiervals) <- "hier"
+names(Brhiervals) <- rownames(m)
+plot(seq_along(Brhiervals), Brhiervals[areas_plotting_order], type = "l",
+     ylim = c(-0.1, 1.5))
+segments(seq_along(Brhiervals), br.ci[areas_plotting_order, "lwr"], 
+         seq_along(Brhiervals), br.ci[areas_plotting_order, "upr"])
+text(Brhiervals[areas_plotting_order], labels =
+       names(Brhiervals[areas_plotting_order]))
+```
+
+## p.26: beta regression 
+
+plot areas' hierarchical values fitted to a scale ranging from 0-10, split into dorsal and ventral streams
+
+```{r}
+plot.hier <- function(hier, ...){
+  h <- 10 * hier/max(hier)
+  Dorsal <- c("LM", "P", "LI", "POR")
+  Ventral <- c("AL", "RL", "A", "PM", "AM")
+  dstr <- sort(h[names(h) %in% Dorsal])
+  vstr <- sort(h[names(h) %in% Ventral])
+  plot(c(-1, 1), c(0, 1.1 * max(h)), type = "n",
+       axes = FALSE, xlab = "", ylab = "Hierarchical Level")
+  axis(2, at = seq(0, 10, 2))
+  lines(c(0, rep(-0.5, length(Dorsal))), c(0.05, dstr), type = "c")
+  lines(c(0, rep(0.5, length(Ventral))), c(0.05, vstr), type = "c")
+  text(0, 0.05, "V1", ...)
+  text(rep(-0.5, length(Dorsal)), dstr, names(dstr), ...)
+  text(rep(0.5, length(Ventral)), vstr, names(vstr), ...)
+}
+```
+
+```{r}
+plot(Brhiervals, cex = 0.9)
+```
+
+## p.27: beta regression 
+
+- print 95% confidence intervals for hierarchical values fitted to a scale ranging from 0-10
+
+```{r}
+bSc.fac <- 9/max(coef(summary(br1))$mean[, 1])
+bSc.int <- 1.96 * coef(summary(br1))$mean[, 2] * bSc.fac
+(bscLhier.ci <- rbind(V1 = 0, 
+                     cbind(lwr = bSc.fac * coef(summary(br1))$mean[, 1] + 1 - bSc.int, 
+                    upr = bSc.fac * coef(summary(br1))$mean[, 1] + 1 + bSc.int
+                    ) )
+)
+```
+
+## p.27: beta regression
+
+plot fitted OD values vs real OD values
+
+```{r}
+par(pty = "s")
+plot(fitted(br1) ~ m.df$ODr, 
+     xlab = "Proportion of Layer 2-4 labelling",
+     ylab = "Fitted Proportion of Layer 2-4 labelling",
+     xlim = c(0, 1), ylim =  c(0, 1)
+    )
+abline(0, 1)
+rv <- cor(fitted(br1), m.df$ODr)
+text(0, 0.9, bquote(r == .(round(rv, 2))), adj = 0)
+```
+
+```{r}
+par(pty = "s")
+plot(qlogis(fitted(br1)) ~ qlogis(m.df$ODr), 
+     xlab = "Proportion of Layer 2-4 labelling",
+     ylab = "Fitted Proportion of Layer 2-4 labelling",
+     xlim = c(-2, 2), ylim =  c(-2, 2)
+    )
+abline(0, 1)
+rv <- cor(qlogis(fitted(br1)), qlogis(m.df$ODr))
+text(-1.9, 1, bquote(r == .(round(rv, 2))), adj = 0)
+```
+
+
+oImat is the incidence matrix with the columns reordered by the estimated hierarchical level from the beta regression.
+
+```{r}
+br1.cc <- c(V1 = 0, coef(br1)[-10])
+names(br1.cc) <- colnames(Imat)
+ord <- order(br1.cc)
+oImat <- Imat[, ord]
+```
+
+```{r}
+mAIC <- sapply(10:2, function(ix){
+roImat <- cbind(oImat[, -(ix:10)],
+if(ix < 10) rowSums(oImat[, ix:10]) else oImat[, 10] )
+m <- betareg(formula = ODr ~ roImat[, -1] + 0, data = m.df)
+AIC(m)
+})
+```
+
+The lowest AIC occurs when all levels from AL to POR are combined.
+
+```{r}
+plot(2:10, mAIC, axes = FALSE, ylab = "AIC", xlab = "Areal Cut-off", col="magenta", pch=19, lwd=5) 
+axis(2, lwd=2, seq(-200, -150, 5))
+axis(1, lwd=2, 2:10, colnames(oImat)[-1])
+box()
+```
+
+
+
+
+
